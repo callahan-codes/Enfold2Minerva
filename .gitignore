@@ -1,0 +1,10 @@
+/bin
+/obj
+/Tests
+/output
+/nupkg
+.vs/
+*.user
+media-manifest.json
+*.json.tmp
+Properties/launchSettings.json
