@@ -1,12 +1,13 @@
 /*
-    Version 1.0.0
+    Version 1.1.0
     enfold2minerva
     
     Moves the images and captions on one old-site page to its development site
 
-      enfold2minerva <url>                         upload images, write block markup to ./output
-      enfold2minerva <url> --create-page "Title"   ...and put them on a new draft page
-      enfold2minerva <url> --dry-run               show what would happen, change nothing
+        enfold2minerva <url>                         upload images, write block markup to ./output
+        enfold2minerva <url> --create-page "Title"   ...and put them on a new draft page
+        enfold2minerva <url> --dry-run               show what would happen, change nothing
+        enfold2minerva seed                          add images already in the new site's media library to the manifest
 
     Images already uploaded (same URL, or the same file under another name) are reused,
     tracked in media-manifest.json; don't delete it or dupes will happen.
@@ -21,6 +22,25 @@ using System.CommandLine;
 using enfold2minerva.Migration;
 using enfold2minerva.WordPress;
 using Microsoft.Extensions.Configuration;
+
+static (WordPressMediaService Wp, UploadManifest Manifest) Connect(string manifestPath)
+{
+    var config = new ConfigurationBuilder().AddUserSecrets<Program>().Build();
+
+    string Require(string key) => config[key] ?? throw new InvalidOperationException
+    (
+        $"Missing user secret '{key}'. Run: dotnet user-secrets set \"{key}\" \"<value>\""
+    );
+
+    var wp = new WordPressMediaService
+    (
+        new Uri(Require("NewWordPress:Url")),
+        Require("NewWordPress:User"),
+        Require("NewWordPress:AppPassword")
+    );
+
+    return (wp, UploadManifest.Load(manifestPath, wp.SiteUrl));
+}
 
 var urlArgument = new Argument<string>("url")
 {
@@ -52,7 +72,8 @@ var manifestOption = new Option<string>("--manifest")
 {
     Description = "File that tracks uploaded images so they are never uploaded twice",
     DefaultValueFactory = _ => "media-manifest.json",
-    HelpName = "path"
+    HelpName = "path",
+    Recursive = true
 };
 
 var outputOption = new Option<string>("--output")
@@ -61,6 +82,8 @@ var outputOption = new Option<string>("--output")
     DefaultValueFactory = _ => "output",
     HelpName = "folder"
 };
+
+var seedCommand = new Command("seed", "Add images already in the new site's media library to the manifest so they're reused, not re-uploaded");
 
 var rootCommand = new RootCommand("enfold2minerva - move an Enfold page's images and captions to a new Minerva site")
 {
@@ -129,4 +152,21 @@ rootCommand.SetAction(async (parseResult, ct) =>
     }
 });
 
+seedCommand.SetAction(async (parseResult, ct) =>
+{
+    try
+    {
+        var (wp, manifest) = Connect(parseResult.GetValue(manifestOption)!);
+        return await ManifestSeeder.RunAsync(wp, manifest, ct);
+    }
+    catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Error.WriteLine(e.Message);
+        Console.ResetColor();
+        return 1;
+    }
+});
+
+rootCommand.Subcommands.Add(seedCommand);
 return await rootCommand.Parse(args).InvokeAsync();

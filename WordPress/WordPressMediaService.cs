@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
@@ -116,6 +117,37 @@ namespace enfold2minerva.WordPress
 
         // Link straight into the block editor for a post or page
         public Uri EditorUrl(int postId) => new(SiteUrl, $"wp-admin/post.php?post={postId}&action=edit");
+
+        // Every image in the media library, oldest first, 100 per request
+        public async IAsyncEnumerable<ExistingMedia> ListImagesAsync([EnumeratorCancellation] CancellationToken ct = default)
+        {
+            for (int page = 1; ; page++)
+            {
+                using HttpResponseMessage response =
+                    await _http.GetAsync($"media?media_type=image&per_page=100&page={page}&orderby=id&order=asc", ct);
+                await ThrowIfFailedAsync(response, $"list media (page {page})", ct);
+
+                List<ExistingMedia> items = await response.Content.ReadFromJsonAsync<List<ExistingMedia>>(ct) ?? new();
+                foreach (ExistingMedia item in items) yield return item;
+
+                int totalPages = response.Headers.TryGetValues("X-WP-TotalPages", out var values)
+                                && int.TryParse(values.FirstOrDefault(), out int t) ? t : page;
+                if (items.Count == 0 || page >= totalPages) yield break;
+            }
+        }
+
+        // Downloads a file from the new site (only the new site, since this client carries the app password)
+        public async Task<byte[]> DownloadAsync(Uri url, CancellationToken ct = default)
+        {
+            if (!url.Host.Equals(SiteUrl.Host, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Refusing to send new-site credentials to {url.Host}.");
+            }
+
+            using HttpResponseMessage response = await _http.GetAsync(url, ct);
+            await ThrowIfFailedAsync(response, $"download {url}", ct);
+            return await response.Content.ReadAsByteArrayAsync(ct);
+        }
 
         // PostAsJsonAsync streams the body without a Content-Length, which some
         // PHP/nginx setups refuse; serializing up front sends a normal sized request.

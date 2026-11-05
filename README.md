@@ -10,6 +10,8 @@ Point it at one page on the old site. It will:
 4. Optionally create a **draft** page on the new site and fill it with those blocks.
 5. Save any PDF that an image links to (a "cover" image) to a local folder, with a CSV mapping each cover to its document.
 
+A separate `seed` command imports images that were already in the new site's media library (for example, ones you uploaded by hand) into the manifest, so they're reused instead of uploaded again.
+
 ---
 
 ## Requirements
@@ -46,6 +48,7 @@ The URL must be `https`; the tool refuses to send the password over plain http.
 
 ```bash
 dotnet run -- <url> [options]
+dotnet run -- seed [--manifest <path>]
 ```
 
 | Command | What it does |
@@ -53,6 +56,7 @@ dotnet run -- <url> [options]
 | `dotnet run -- https://old-site.example/page/ --dry-run` | Shows what would be uploaded, reused and saved. Changes nothing. |
 | `dotnet run -- https://old-site.example/page/` | Uploads images and writes block markup to `output/page/blocks.html`. |
 | `dotnet run -- https://old-site.example/page/ --create-page "Page Title"` | Does the above, plus creates a draft page with the blocks on it. |
+| `dotnet run -- seed` | Adds images already in the new site's media library to the manifest. Run it once before migrating if the library isn't empty. |
 
 ### Options
 
@@ -61,7 +65,7 @@ dotnet run -- <url> [options]
 | `<url>` | *(required)* | The old-site page to pull images and captions from |
 | `--create-page <title>` | none | Create a draft page on the new site with this title and place the blocks on it |
 | `--dry-run` | off | Preview only. Works without credentials, but can't check what's already uploaded |
-| `--manifest <path>` | `media-manifest.json` | File that tracks uploaded media (see below) |
+| `--manifest <path>` | `media-manifest.json` | File that tracks uploaded media (see below). Also works with `seed` |
 | `--output <folder>` | `output` | Parent folder for per-page output |
 
 Start every page with `--dry-run`.
@@ -69,12 +73,22 @@ Start every page with `--dry-run`.
 ### Install as a global tool (optional)
 
 ```bash
-dotnet pack
+dotnet pack -c Release
 dotnet tool install --global --add-source ./nupkg Enfold2Minerva
 enfold2minerva https://old-site.example/page/ --dry-run
 ```
 
-Run the installed tool from the project folder so it picks up your user secrets and the same manifest.
+To update an installed tool after changing the code, bump `<Version>` in `Enfold2Minerva.csproj`, then:
+
+```bash
+dotnet pack -c Release
+dotnet tool update --global --add-source ./nupkg Enfold2Minerva
+enfold2minerva --version
+```
+
+`--version` prints something like `1.1.0+342b146…`. The part after `+` is the Git commit the package was built from.
+
+Pass `--manifest` with a full path (or run from the project folder) so every run uses the same manifest.
 
 ---
 
@@ -111,6 +125,22 @@ The first page an image is placed on becomes its "Uploaded to" page in the media
 
 > **Keep `media-manifest.json`.** Deleting it means the next run can't see what's already uploaded and will create duplicates. A manifest is tied to one site and refuses to be used against another.
 
+### Media that was already on the new site
+
+The manifest only knows about uploads this tool made. If images were added to the new site another way (by hand, before the tool existed), run:
+
+```bash
+enfold2minerva seed --manifest path/to/media-manifest.json
+```
+
+It reads every image in the new site's media library, skips any whose media ID is already in the manifest, and hashes the rest in memory (nothing is saved to disk). Each one is added to the manifest with `"Origin": "pre-existing"`. It's safe to re-run.
+
+- For large images WordPress serves a `-scaled` copy, so `seed` hashes the original upload (`media_details.original_image`) instead.
+- Identical files already duplicated in the library are reported as "could be deleted"; the lowest media ID is kept.
+- Matching is by exact bytes, so **file names don't matter**. But an image that was edited, re-exported, resized or watermarked before uploading won't match the old-site copy. Run each page with `--dry-run` afterwards: anything marked "would upload" that you know is already on the site is one of these.
+
+When a page run matches a seeded image by hash, the old-site URL is added to that entry, so later runs skip the download.
+
 ---
 
 ## Warnings to review
@@ -129,7 +159,7 @@ The tool prints warnings for things that need a human look:
 |---|---|
 | `0` | Success (or nothing to do) |
 | `1` | Fatal error (bad URL, missing secrets, network/auth failure) or cancelled |
-| `2` | Finished, but one or more images or PDFs failed (listed at the end) |
+| `2` | Finished, but one or more images, PDFs or (for `seed`) media items failed (listed in the output) |
 
 Ctrl+C is safe: anything already uploaded is in the manifest.
 
@@ -137,9 +167,9 @@ Ctrl+C is safe: anything already uploaded is in the manifest.
 
 ## Security notes
 
-- Credentials live only in user secrets and are sent only to the new site, over https.
+- Credentials live only in user secrets and are sent only to the new site, over https. The client refuses to download from any other host with them.
 - The old site is fetched with a separate, credential-free HTTP client.
-- `media-manifest.json`, `output/` and `launchSettings.json` contain real site URLs and are git-ignored. Don't commit them.
+- `media-manifest.json`, `output/`, `nupkg/` and `launchSettings.json` contain real site URLs or build output and are git-ignored. Don't commit them.
 - Caption HTML is copied as-is. If your migration user can post unfiltered HTML, review captions copied from untrusted sources.
 
 ---
@@ -148,16 +178,29 @@ Ctrl+C is safe: anything already uploaded is in the manifest.
 
 | File | Role |
 |---|---|
-| `Program.cs` | CLI arguments, secrets, entry point |
+| `Program.cs` | CLI arguments and the `seed` subcommand, secrets, entry point |
 | `PageMigrator.cs` | Runs one page: scrape → upload → markup → draft page |
+| `ManifestSeeder.cs` | The `seed` command: imports existing media library images into the manifest |
 | `DomSorterService.cs` | Finds images, captions and linked PDFs in the page HTML |
 | `ClientDomBase.cs` | Downloads the old page |
 | `OldSite.cs` | Credential-free HTTP client for the old site |
 | `ImageService.cs` | Manifest lookup, download, hash dedupe, upload |
 | `PdfService.cs` | Saves linked PDFs and writes `linked-pdfs.csv` |
 | `MinervaBlockBuilder.cs` | Builds image and paragraph block markup |
-| `WordPressMediaService.cs` | WordPress REST API client (media, pages) |
+| `WordPressMediaService.cs` | WordPress REST API client (media upload and listing, pages) |
 | `UploadManifest.cs` | The dedupe manifest |
 | `MigrationOptions.cs` | Run options and output folder naming |
-| `CaptionedMediaItem.cs`, `LinkRow.cs` | Data models |
+| `CaptionedMediaItem.cs`, `LinkRow.cs`, `ManifestEntry.cs`, `ExistingMedia.cs` | Data models |
 | `Log.cs` | Coloured console output |
+
+---
+
+## Changelog
+
+### 1.1.0
+- Added the `seed` command, which imports images already in the new site's media library into the manifest so they're reused instead of re-uploaded.
+- Manifest entries imported by `seed` are marked `"Origin": "pre-existing"`.
+- `--manifest` now also applies to `seed`.
+
+### 1.0.0
+- First release.

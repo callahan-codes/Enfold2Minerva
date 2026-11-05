@@ -14,5 +14,6 @@ namespace enfold2minerva.Model
         public List<int> PlacedOnPageIds { get; set; } = new();
         public DateTimeOffset UploadedAt { get; set; }
         public List<LinkedFile> LinkedFiles { get; set; } = new();
+        public string? Origin { get; set; }
     }
 }
