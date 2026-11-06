@@ -13,6 +13,7 @@ namespace enfold2minerva.ClientDom
         public static readonly string[] ContainerClasses =
         [
             "avia-image-container",
+            "avia-gallery",
             "av-masonry",
             "av-horizontal-gallery-slider",
         ];

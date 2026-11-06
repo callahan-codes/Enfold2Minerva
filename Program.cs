@@ -1,5 +1,5 @@
 /*
-    Version 1.1.0
+    Version 1.1.1
     enfold2minerva
     
     Moves the images and captions on one old-site page to its development site
