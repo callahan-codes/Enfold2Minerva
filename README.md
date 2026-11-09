@@ -208,3 +208,5 @@ Ctrl+C is safe: anything already uploaded is in the manifest.
 - Added 'seed' command, which populates the set/default manifest.json file with images already located in the wordpress site media tab for manual/previous uploads not set by this tool.
 ### 1.1.1
 - Added avia-gallery to DomSorterService.ContainerClasses
+### 1.1.2
+- Added avia-accordian-slider-wrap to DomSorterService.ContainerClasses

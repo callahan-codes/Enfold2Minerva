@@ -14,6 +14,7 @@ namespace enfold2minerva.ClientDom
         [
             "avia-image-container",
             "avia-gallery",
+            "avia-accordion-slider-wrap",
             "av-masonry",
             "av-horizontal-gallery-slider",
         ];
